@@ -5,12 +5,14 @@ DATABASE_URL 환경 변수가 있으면(Render 배포) SQLite 대신 Postgres에
 WSGI 진입점은 `application` 이다.
 """
 
+import hashlib
 import json
 import os
 import re
 import secrets
 import socket
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -26,6 +28,11 @@ ALLOWED_HOSTS = {"9way.co.kr", "www.9way.co.kr"}
 MAX_NAME = 20
 MAX_URL = 500
 MAX_BODY = 4096
+PIN_TRIES = 5
+PIN_LOCK_SECONDS = 600
+
+# 삭제 비밀번호를 연달아 틀린 횟수: {member_id: [횟수, 잠금 해제 시각]}
+pin_failures = {}
 
 
 if DATABASE_URL:
@@ -62,10 +69,16 @@ def init_db():
             name TEXT NOT NULL,
             url TEXT NOT NULL UNIQUE,
             token TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            pin_hash TEXT
         )
         """
     )
+    # 삭제 비밀번호가 생기기 전에 만들어진 테이블에는 열을 덧붙인다.
+    if DATABASE_URL:
+        run("ALTER TABLE members ADD COLUMN IF NOT EXISTS pin_hash TEXT")
+    elif not any(col["name"] == "pin_hash" for col in run("PRAGMA table_info(members)")):
+        run("ALTER TABLE members ADD COLUMN pin_hash TEXT")
 
 
 def clean_name(raw):
@@ -75,6 +88,22 @@ def clean_name(raw):
     if len(name) > MAX_NAME:
         raise ValueError(f"이름은 {MAX_NAME}자 이내로 입력해 주세요.")
     return name
+
+
+def name_key(name):
+    """띄어쓰기와 대소문자만 다른 이름을 같은 사람으로 본다."""
+    return name.replace(" ", "").lower()
+
+
+def clean_pin(raw):
+    pin = str(raw or "").strip()
+    if not re.fullmatch(r"\d{4}", pin):
+        raise ValueError("삭제 비밀번호는 숫자 4자리로 정해 주세요.")
+    return pin
+
+
+def hash_pin(pin, token):
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), token.encode(), 50_000).hex()
 
 
 def clean_url(raw):
@@ -126,6 +155,7 @@ def add_member(environ, start_response):
             raise ValueError("요청 내용을 읽을 수 없습니다.")
         name = clean_name(payload.get("name"))
         url = clean_url(payload.get("url"))
+        pin = clean_pin(payload.get("pin"))
     except UnicodeDecodeError:
         return error(start_response, "400 Bad Request", "요청 내용을 읽을 수 없습니다.")
     except json.JSONDecodeError:
@@ -133,12 +163,20 @@ def add_member(environ, start_response):
     except ValueError as exc:
         return error(start_response, "400 Bad Request", str(exc))
 
+    if run("SELECT 1 FROM members WHERE REPLACE(LOWER(name), ' ', '') = ?", (name_key(name),)):
+        return error(
+            start_response,
+            "409 Conflict",
+            f"'{name}' 이름은 이미 등록되어 있습니다. 링크를 바꾸려면 명단에서 삭제한 뒤 다시 올려 주세요. "
+            "이름이 같은 다른 사람이라면 이름 뒤에 구분 글자를 붙여 주세요. (예: 홍길동B)",
+        )
+
     token = secrets.token_urlsafe(24)
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         rows = run(
-            "INSERT INTO members (name, url, token, created_at) VALUES (?, ?, ?, ?) RETURNING id",
-            (name, url, token, created_at),
+            "INSERT INTO members (name, url, token, created_at, pin_hash) VALUES (?, ?, ?, ?, ?) RETURNING id",
+            (name, url, token, created_at, hash_pin(pin, token)),
         )
         member_id = rows[0]["id"]
     except DUPLICATE_ERRORS:
@@ -151,13 +189,40 @@ def add_member(environ, start_response):
 
 
 def delete_member(environ, start_response, member_id):
+    """등록한 브라우저의 토큰, 또는 등록할 때 정한 삭제 비밀번호로 지운다."""
     token = environ.get("HTTP_X_TOKEN", "")
-    rows = run("SELECT token FROM members WHERE id = ?", (member_id,))
+    pin = environ.get("HTTP_X_PIN", "")
+    rows = run("SELECT token, pin_hash FROM members WHERE id = ?", (member_id,))
     if not rows:
         return error(start_response, "404 Not Found", "이미 삭제된 항목입니다.")
-    if not token or not secrets.compare_digest(rows[0]["token"], token):
-        return error(start_response, "403 Forbidden", "본인이 등록한 기기에서만 삭제할 수 있습니다.")
+    row = rows[0]
+
+    if token:
+        allowed = secrets.compare_digest(row["token"], token)
+    else:
+        if not row["pin_hash"]:
+            return error(start_response, "403 Forbidden", "이 항목은 등록한 기기에서만 삭제할 수 있습니다.")
+        count, locked_until = pin_failures.get(member_id, (0, 0))
+        if time.time() < locked_until:
+            return error(
+                start_response,
+                "429 Too Many Requests",
+                "비밀번호를 여러 번 틀렸습니다. 10분 뒤에 다시 시도해 주세요.",
+            )
+        allowed = bool(re.fullmatch(r"\d{4}", pin)) and secrets.compare_digest(
+            row["pin_hash"], hash_pin(pin, row["token"])
+        )
+        if not allowed:
+            count += 1
+            if count >= PIN_TRIES:
+                pin_failures[member_id] = (0, time.time() + PIN_LOCK_SECONDS)
+            else:
+                pin_failures[member_id] = (count, 0)
+
+    if not allowed:
+        return error(start_response, "403 Forbidden", "삭제 비밀번호가 맞지 않습니다.")
     run("DELETE FROM members WHERE id = ?", (member_id,))
+    pin_failures.pop(member_id, None)
     return respond(start_response, "200 OK", {"deleted": member_id})
 
 

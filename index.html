@@ -38,6 +38,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -80,7 +81,7 @@
     flex-direction: column;
     gap: 14px;
   }
-  .fields { display: grid; grid-template-columns: 9em 1fr; gap: 12px; }
+  .fields { display: grid; grid-template-columns: 8em 1fr 8em; gap: 12px; }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   label { font-size: 13px; font-weight: 600; color: var(--muted); }
   input[type="text"], input[type="url"] {
@@ -166,6 +167,20 @@
     white-space: nowrap;
   }
   .remove.armed { color: var(--danger); border-color: var(--danger); }
+  .registered { margin: 0; }
+  .registered strong { font-weight: 700; }
+  .pin-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 0 4px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .pin-row label { font-weight: 500; }
+  .pin-row input { width: 7em; padding: 6px 10px; }
+  .row.asking { border-bottom: 0; }
   .empty { padding: 28px 4px; color: var(--muted); border-bottom: 1px solid var(--line); }
 
   @media (max-width: 520px) {
@@ -192,11 +207,16 @@
         <label for="url">강점 진단 링크</label>
         <input type="url" id="url" name="url" maxlength="500" inputmode="url" autocomplete="off" placeholder="https://9way.co.kr/ko/recommend/…" required>
       </div>
+      <div class="field">
+        <label for="pin">삭제 비밀번호</label>
+        <input type="text" id="pin" name="pin" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" autocomplete="off" placeholder="숫자 4자리" required>
+      </div>
     </div>
-    <div class="form-foot">
-      <p class="hint">9WAY에서 받은 공유 링크(주소에 recommend가 들어간 것)를 그대로 붙여 넣으세요.</p>
+    <div class="form-foot" id="form-foot">
+      <p class="hint">9WAY에서 받은 공유 링크(주소에 recommend가 들어간 것)를 그대로 붙여 넣으세요. 삭제 비밀번호는 잘못 올린 링크를 지울 때 씁니다.</p>
       <button type="submit" class="primary" id="submit">내 링크 올리기</button>
     </div>
+    <p class="registered" id="registered" hidden></p>
     <p class="message" id="message" role="status" hidden></p>
   </form>
 
@@ -213,8 +233,12 @@
 (function () {
   var REFRESH_MS = 15000;
   var form = document.getElementById("add-form");
+  var fields = form.querySelector(".fields");
+  var formFoot = document.getElementById("form-foot");
+  var registered = document.getElementById("registered");
   var nameInput = document.getElementById("name");
   var urlInput = document.getElementById("url");
+  var pinInput = document.getElementById("pin");
   var submitBtn = document.getElementById("submit");
   var message = document.getElementById("message");
   var roster = document.getElementById("roster");
@@ -240,7 +264,64 @@
     message.hidden = false;
   }
 
+  function myEntry() {
+    for (var i = 0; i < members.length; i += 1) {
+      if (mine[members[i].id]) return members[i];
+    }
+    return null;
+  }
+
+  // 이 브라우저에서 이미 올렸으면 입력칸 대신 안내를 보여 한 사람이 두 번 올리지 않게 한다.
+  function renderForm() {
+    var entry = myEntry();
+    fields.hidden = Boolean(entry);
+    formFoot.hidden = Boolean(entry);
+    registered.hidden = !entry;
+    registered.textContent = "";
+    if (entry) {
+      var strong = document.createElement("strong");
+      strong.textContent = entry.name;
+      registered.appendChild(strong);
+      registered.appendChild(document.createTextNode(
+        " 님으로 이미 올렸습니다. 링크를 잘못 올렸다면 아래 명단에서 삭제한 뒤 다시 올려 주세요."
+      ));
+    }
+  }
+
+  function buildPinRow(m) {
+    var wrap = document.createElement("li");
+    wrap.className = "pin-row";
+    var label = document.createElement("label");
+    label.htmlFor = "pin-" + m.id;
+    label.textContent = "등록할 때 정한 삭제 비밀번호";
+    var input = document.createElement("input");
+    input.type = "text";
+    input.id = "pin-" + m.id;
+    input.maxLength = 4;
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.placeholder = "숫자 4자리";
+    var confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "remove armed";
+    confirm.textContent = "삭제";
+    function submit() { removeMember(m.id, { "X-Pin": input.value.trim() }); }
+    confirm.addEventListener("click", submit);
+    input.addEventListener("keydown", function (event) { if (event.key === "Enter") submit(); });
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "remove";
+    cancel.textContent = "취소";
+    cancel.addEventListener("click", function () { armedId = null; render(); });
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    wrap.appendChild(confirm);
+    wrap.appendChild(cancel);
+    return { row: wrap, input: input };
+  }
+
   function render() {
+    renderForm();
     roster.textContent = "";
     if (!members.length) {
       var empty = document.createElement("li");
@@ -253,14 +334,15 @@
       return;
     }
 
-    var others = 0, checked = 0;
+    var others = 0, checked = 0, focusPin = null;
     members.forEach(function (m) {
       var isMine = Boolean(mine[m.id]);
       var isDone = Boolean(done[m.id]);
+      var isArmed = armedId === m.id;
       if (!isMine) { others += 1; if (isDone) checked += 1; }
 
       var li = document.createElement("li");
-      li.className = "row" + (isDone && !isMine ? " done" : "");
+      li.className = "row" + (isDone && !isMine ? " done" : "") + (isArmed && !isMine ? " asking" : "");
 
       var label = document.createElement("label");
       label.className = "check";
@@ -300,58 +382,67 @@
       go.textContent = isMine ? "내 링크 열기" : "평가하러 가기";
       actions.appendChild(go);
 
-      if (isMine) {
+      // 내가 올린 항목은 두 번 눌러 바로 지우고, 그 밖의 항목은 삭제 비밀번호를 묻는다.
+      if (!(isArmed && !isMine)) {
         var remove = document.createElement("button");
         remove.type = "button";
-        remove.className = "remove" + (armedId === m.id ? " armed" : "");
-        remove.textContent = armedId === m.id ? "정말 삭제" : "삭제";
+        remove.className = "remove" + (isArmed ? " armed" : "");
+        remove.textContent = isArmed ? "정말 삭제" : "삭제";
+        remove.setAttribute("aria-label", m.name + (isArmed ? " 정말 삭제" : " 삭제"));
         remove.addEventListener("click", function () {
           if (armedId !== m.id) { armedId = m.id; render(); return; }
-          removeMember(m.id);
+          removeMember(m.id, { "X-Token": mine[m.id] });
         });
         actions.appendChild(remove);
       }
       li.appendChild(actions);
       roster.appendChild(li);
+
+      if (isArmed && !isMine) {
+        var pinRow = buildPinRow(m);
+        roster.appendChild(pinRow.row);
+        focusPin = pinRow.input;
+      }
     });
 
     count.textContent = members.length + "명 등록 · 내가 평가한 사람 " + checked + "/" + others;
+    if (focusPin) focusPin.focus();
   }
 
-  function load() {
+  function load(force) {
     return fetch("/api/members")
       .then(function (res) { if (!res.ok) throw new Error(); return res.json(); })
       .then(function (data) {
         var next = data.members || [];
-        // 바뀐 게 없으면 다시 그리지 않아 포커스와 삭제 확인 상태를 지킨다.
-        if (loaded && JSON.stringify(next) === JSON.stringify(members)) return;
+        // 바뀐 게 없으면 다시 그리지 않아 포커스와 입력 중인 비밀번호를 지킨다.
+        if (!force && loaded && JSON.stringify(next) === JSON.stringify(members)) return;
         members = next; loaded = true; render();
       })
       .catch(function () { if (!loaded) render(); });
   }
 
-  function removeMember(id) {
-    fetch("/api/members/" + id, { method: "DELETE", headers: { "X-Token": mine[id] } })
+  function removeMember(id, headers) {
+    fetch("/api/members/" + id, { method: "DELETE", headers: headers })
       .then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok && res.status !== 404) throw new Error(data.error);
           delete mine[id];
           writeStore("9way-mine", mine);
           armedId = null;
-          showMessage("삭제했습니다.", "ok");
-          return load();
+          showMessage("삭제했습니다. 링크를 다시 올릴 수 있습니다.", "ok");
+          return load(true);
         });
       })
       .catch(function (err) {
-        armedId = null;
         showMessage(err.message || "삭제하지 못했습니다. 다시 시도해 주세요.", "error");
-        render();
+        if (headers["X-Token"]) { armedId = null; render(); }
       });
   }
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
-    var payload = { name: nameInput.value, url: urlInput.value };
+    if (myEntry()) return;
+    var payload = { name: nameInput.value, url: urlInput.value, pin: pinInput.value };
     submitBtn.disabled = true;
     fetch("/api/members", {
       method: "POST",
@@ -365,7 +456,7 @@
           writeStore("9way-mine", mine);
           form.reset();
           showMessage(data.name + " 님 링크를 올렸습니다.", "ok");
-          return load();
+          return load(true);
         });
       })
       .catch(function (err) {
