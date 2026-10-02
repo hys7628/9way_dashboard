@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>우리 반 강점 보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+  /* 한 단 레이아웃: 안내 → 등록 폼 → 명단. 명단이 페이지의 본문이다. */
+  :root {
+    --bg: #f2f5f3;
+    --surface: #ffffff;
+    --ink: #15221e;
+    --muted: #5d6b66;
+    --line: #d5ddd9;
+    --accent: #1f4fd1;
+    --accent-ink: #ffffff;
+    --done: #18794e;
+    --done-bg: #e3f2ea;
+    --danger: #b3261e;
+    --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101614;
+      --surface: #18201d;
+      --ink: #e7eeeb;
+      --muted: #98a6a0;
+      --line: #2b3632;
+      --accent: #8aa7ff;
+      --accent-ink: #0c1430;
+      --done: #6fd3a0;
+      --done-bg: #173024;
+      --danger: #ff8a80;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    padding-block: 40px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  header { display: flex; flex-direction: column; gap: 8px; }
+  .eyebrow {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(26px, 6vw, 34px);
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  header p { margin: 0; color: var(--muted); max-width: 34em; }
+
+  form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .fields { display: grid; grid-template-columns: 9em 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  label { font-size: 13px; font-weight: 600; color: var(--muted); }
+  input[type="text"], input[type="url"] {
+    width: 100%;
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  input::placeholder { color: var(--muted); opacity: 0.7; }
+  .form-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hint { flex: 1 1 16em; margin: 0; font-size: 13px; color: var(--muted); }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid transparent;
+  }
+  .primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+    padding: 10px 20px;
+  }
+  .primary:disabled { opacity: 0.6; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .message { margin: 0; font-size: 14px; font-weight: 500; }
+  .message.error { color: var(--danger); }
+  .message.ok { color: var(--done); }
+
+  .roster-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+  }
+  h2 { margin: 0; font-size: 18px; font-weight: 700; }
+  .count { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  .check { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; cursor: pointer; }
+  .check input { width: 20px; height: 20px; flex: none; accent-color: var(--done); cursor: pointer; }
+  .name { font-weight: 600; font-size: 16px; color: var(--ink); overflow-wrap: anywhere; }
+  .row.done .name { color: var(--muted); text-decoration: line-through; }
+  .tag {
+    flex: none;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--done-bg);
+    color: var(--done);
+  }
+  .actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .go {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .go:hover { background: var(--accent); color: var(--accent-ink); }
+  .remove {
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 6px 8px;
+    border-color: var(--line);
+    white-space: nowrap;
+  }
+  .remove.armed { color: var(--danger); border-color: var(--danger); }
+  .empty { padding: 28px 4px; color: var(--muted); border-bottom: 1px solid var(--line); }
+
+  @media (max-width: 520px) {
+    .fields { grid-template-columns: 1fr; }
+    .primary { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="eyebrow">무역아카데미 · 9WAY 강점 진단</span>
+    <h1>우리 반 강점 보드</h1>
+    <p>내 이름과 강점 진단 링크를 올려 두면, 반 친구들이 들어가서 내 강점을 골라 줍니다. 명단에서 친구 링크를 열어 평가해 주세요.</p>
+  </header>
+
+  <form id="add-form" novalidate>
+    <div class="fields">
+      <div class="field">
+        <label for="name">이름</label>
+        <input type="text" id="name" name="name" maxlength="20" autocomplete="name" placeholder="홍길동" required>
+      </div>
+      <div class="field">
+        <label for="url">강점 진단 링크</label>
+        <input type="url" id="url" name="url" maxlength="500" inputmode="url" autocomplete="off" placeholder="https://9way.co.kr/ko/recommend/…" required>
+      </div>
+    </div>
+    <div class="form-foot">
+      <p class="hint">9WAY에서 받은 공유 링크(주소에 recommend가 들어간 것)를 그대로 붙여 넣으세요.</p>
+      <button type="submit" class="primary" id="submit">내 링크 올리기</button>
+    </div>
+    <p class="message" id="message" role="status" hidden></p>
+  </form>
+
+  <section aria-labelledby="roster-title">
+    <div class="roster-head">
+      <h2 id="roster-title">명단</h2>
+      <span class="count" id="count"></span>
+    </div>
+    <ul id="roster"><li class="empty">명단을 불러오는 중입니다…</li></ul>
+  </section>
+</main>
+
+<script>
+(function () {
+  var REFRESH_MS = 15000;
+  var form = document.getElementById("add-form");
+  var nameInput = document.getElementById("name");
+  var urlInput = document.getElementById("url");
+  var submitBtn = document.getElementById("submit");
+  var message = document.getElementById("message");
+  var roster = document.getElementById("roster");
+  var count = document.getElementById("count");
+
+  var members = [];
+  var loaded = false;
+  var armedId = null;
+
+  // 평가 완료 표시와 내 등록 토큰은 이 브라우저에만 저장한다.
+  function readStore(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function writeStore(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 저장이 막혀 있어도 화면은 동작한다 */ }
+  }
+  var done = readStore("9way-done");
+  var mine = readStore("9way-mine");
+
+  function showMessage(text, kind) {
+    message.textContent = text;
+    message.className = "message " + kind;
+    message.hidden = false;
+  }
+
+  function render() {
+    roster.textContent = "";
+    if (!members.length) {
+      var empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = loaded
+        ? "아직 등록된 사람이 없습니다. 위에서 첫 번째로 링크를 올려 보세요."
+        : "명단을 불러오지 못했습니다. 잠시 후 다시 열어 주세요.";
+      roster.appendChild(empty);
+      count.textContent = "";
+      return;
+    }
+
+    var others = 0, checked = 0;
+    members.forEach(function (m) {
+      var isMine = Boolean(mine[m.id]);
+      var isDone = Boolean(done[m.id]);
+      if (!isMine) { others += 1; if (isDone) checked += 1; }
+
+      var li = document.createElement("li");
+      li.className = "row" + (isDone && !isMine ? " done" : "");
+
+      var label = document.createElement("label");
+      label.className = "check";
+      if (!isMine) {
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.id = "done-" + m.id;
+        box.checked = isDone;
+        box.setAttribute("aria-label", m.name + " 평가 완료");
+        box.addEventListener("change", function () {
+          if (box.checked) done[m.id] = true; else delete done[m.id];
+          writeStore("9way-done", done);
+          render();
+        });
+        label.appendChild(box);
+      }
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = m.name;
+      label.appendChild(name);
+      li.appendChild(label);
+
+      if (isMine) {
+        var tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = "나";
+        li.appendChild(tag);
+      }
+
+      var actions = document.createElement("div");
+      actions.className = "actions";
+      var go = document.createElement("a");
+      go.className = "go";
+      go.href = m.url;
+      go.target = "_blank";
+      go.rel = "noopener noreferrer";
+      go.textContent = isMine ? "내 링크 열기" : "평가하러 가기";
+      actions.appendChild(go);
+
+      if (isMine) {
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "remove" + (armedId === m.id ? " armed" : "");
+        remove.textContent = armedId === m.id ? "정말 삭제" : "삭제";
+        remove.addEventListener("click", function () {
+          if (armedId !== m.id) { armedId = m.id; render(); return; }
+          removeMember(m.id);
+        });
+        actions.appendChild(remove);
+      }
+      li.appendChild(actions);
+      roster.appendChild(li);
+    });
+
+    count.textContent = members.length + "명 등록 · 내가 평가한 사람 " + checked + "/" + others;
+  }
+
+  function load() {
+    return fetch("/api/members")
+      .then(function (res) { if (!res.ok) throw new Error(); return res.json(); })
+      .then(function (data) {
+        var next = data.members || [];
+        // 바뀐 게 없으면 다시 그리지 않아 포커스와 삭제 확인 상태를 지킨다.
+        if (loaded && JSON.stringify(next) === JSON.stringify(members)) return;
+        members = next; loaded = true; render();
+      })
+      .catch(function () { if (!loaded) render(); });
+  }
+
+  function removeMember(id) {
+    fetch("/api/members/" + id, { method: "DELETE", headers: { "X-Token": mine[id] } })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok && res.status !== 404) throw new Error(data.error);
+          delete mine[id];
+          writeStore("9way-mine", mine);
+          armedId = null;
+          showMessage("삭제했습니다.", "ok");
+          return load();
+        });
+      })
+      .catch(function (err) {
+        armedId = null;
+        showMessage(err.message || "삭제하지 못했습니다. 다시 시도해 주세요.", "error");
+        render();
+      });
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var payload = { name: nameInput.value, url: urlInput.value };
+    submitBtn.disabled = true;
+    fetch("/api/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data.error);
+          mine[data.id] = data.token;
+          writeStore("9way-mine", mine);
+          form.reset();
+          showMessage(data.name + " 님 링크를 올렸습니다.", "ok");
+          return load();
+        });
+      })
+      .catch(function (err) {
+        showMessage(err.message || "등록하지 못했습니다. 다시 시도해 주세요.", "error");
+      })
+      .then(function () { submitBtn.disabled = false; });
+  });
+
+  load();
+  setInterval(function () { if (!document.hidden) load(); }, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

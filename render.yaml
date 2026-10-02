@@ -1,0 +1,19 @@
+# Render Blueprint: 웹 서비스 1개 + 명단을 보관할 Postgres 1개 (둘 다 무료 플랜)
+databases:
+  - name: strength-board-db
+    plan: free
+
+services:
+  - type: web
+    name: strength-board
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:application --bind 0.0.0.0:$PORT --workers 1 --threads 8
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        fromDatabase:
+          name: strength-board-db
+          property: connectionString
